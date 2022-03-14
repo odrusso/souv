@@ -1,8 +1,16 @@
 # Souv
+A proof-of-concept work-in-progress web-app for surveillance camera monitoring and recording
 
-## A proof-of-concept work-in-progress web-app for surveillance camera monitoring and recording
+## Getting started
+### API
+You will need `ffmpeg` installed locally.  
+Set the env variable `SOUV_RTSP_URLS` to a comma seperated list of RTSP URLs you want to stream.    
+`go install && go run main.go`
 
-## How does real time streaming from RTSP -> HLS work?
+### Web
+`yarn && yarn dev`
+
+### How does real time streaming from RTSP -> HLS work?
 
 We'll get an API request that looks like something:
 `POST /api/v1/stream/{camera-id}`
