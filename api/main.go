@@ -5,11 +5,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"os"
 	"os/exec"
+	"souv/utils"
 	"strconv"
-	"strings"
+	"time"
 )
 
-func startRTSP(rtspURL string, dirName string) {
+type RunningFFMPEGTask struct {
+	pid       int
+	time      time.Time
+	channelId string
+}
+
+type StartStreamBody struct {
+	RtspUrl   string `json:"rtspUrl"`
+	ChannelId string `json:"channelId"`
+}
+
+var globalPidList []RunningFFMPEGTask
+
+func startRTSP(rtspURL string, channelId string) {
 	ffmpegArgs := []string{"-fflags", "nobuffer",
 		"-rtsp_transport", "tcp",
 		"-i", rtspURL,
@@ -26,35 +40,114 @@ func startRTSP(rtspURL string, dirName string) {
 		"-segment_format", "mpegts",
 		"-segment_list", "index.m3u8",
 		"-segment_list_type", "m3u8",
-		"-segment_list_entry_prefix", dirName,
+		"-segment_list_entry_prefix", channelId,
 		"-segment_wrap", "10",
 		"%d.ts"}
 
-	exec.Command("mkdir", "."+dirName).Run()
+	// Create directory for HLS files
+	exec.Command("mkdir", "./stream/"+channelId).Run()
 
 	cmd := exec.Command("ffmpeg", ffmpegArgs...)
-	cmd.Dir = "." + dirName
-	err := cmd.Start()
+	cmd.Dir = "./stream/" + channelId
 
-	fmt.Println(err)
-	fmt.Println("Started streaming at " + dirName)
+	err := cmd.Start()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println("Started streaming at " + channelId)
+
+	// Add to global list of running agents
+	globalPidList = append(globalPidList,
+		RunningFFMPEGTask{cmd.Process.Pid, time.Now(), channelId},
+	)
 }
 
-func startAgents() {
-	exec.Command("rm", "-rf", "./stream").Run()
-	exec.Command("mkdir", "./stream").Run()
+func killAgent(task *RunningFFMPEGTask) {
+	process, _ := os.FindProcess(task.pid)
 
-	env, _ := os.LookupEnv("SOUV_RTSP_URLS")
-	urls := strings.Split(env, ",")
+	err := process.Kill()
+	if err != nil {
+		fmt.Println("Failed to kill FFMPEG agent at pid" + strconv.Itoa(task.pid))
+		fmt.Println(err)
+	} else {
+		fmt.Println("Killed agent at PID " + strconv.Itoa(task.pid))
+		err := exec.Command("rm", "-rf", "./stream/"+task.channelId).Run()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+}
 
-	for i, url := range urls {
-		startRTSP(url, "/stream/ch"+strconv.Itoa(i)+"/")
+func cleanupTasks() {
+	// Get list of all classes to clean up and kill them
+	var taskIndexesToRemove []int
+	for i, task := range globalPidList {
+		// More than 30 seconds ago
+		if task.time.Before(time.Now().Add(-30 * time.Second)) {
+			taskIndexesToRemove = append(taskIndexesToRemove, i)
+			killAgent(&task)
+		}
+	}
+
+	// Remove cancelled tasks from global list
+	var newRunningPids []RunningFFMPEGTask
+	for i, task := range globalPidList {
+		if !utils.IntInSlice(i, taskIndexesToRemove) {
+			newRunningPids = append(newRunningPids, task)
+		}
+	}
+	globalPidList = newRunningPids
+}
+
+func startStreamController(c *gin.Context) {
+	var body StartStreamBody
+	err := c.BindJSON(&body)
+	if err != nil {
+		fmt.Println("Unable to parse body")
+		return
+	}
+
+	// Check if task with this channel ID is already running
+	var running = false
+	var runningIndex = -1
+	for i, task := range globalPidList {
+		if task.channelId == body.ChannelId {
+			running = true
+			runningIndex = i
+		}
+	}
+
+	if running {
+		// Update keep alive time of existing stream
+		globalPidList[runningIndex] = RunningFFMPEGTask{
+			globalPidList[runningIndex].pid,
+			time.Now(),
+			globalPidList[runningIndex].channelId,
+		}
+	} else {
+		// Spin up new ffmpeg task
+		startRTSP(body.RtspUrl, body.ChannelId)
 	}
 }
 
 func main() {
+
+	// Periodic FFMPEG agent cleanup task
+	go func() {
+		for true {
+			fmt.Println("Current running agents: " + strconv.Itoa(len(globalPidList)))
+			fmt.Println("Running periodic agent cleanup task")
+			cleanupTasks()
+			time.Sleep(10 * time.Second) // Run every 10 seconds
+		}
+	}()
+
+	exec.Command("rm", "-rf", "./stream").Run()
+	exec.Command("mkdir", "./stream").Run()
+
 	router := gin.Default()
-	startAgents()
 	router.Static("./stream", "./stream")
+	router.POST("api/v1/stream", startStreamController)
 	router.Run("0.0.0.0:8080")
 }

@@ -1,4 +1,4 @@
-module example/web-service-gin
+module souv
 
 go 1.13
 
