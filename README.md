@@ -10,7 +10,6 @@ You will need `ffmpeg` installed locally.
 `yarn && yarn dev`
 
 ### How does real time streaming from RTSP -> HLS work?
-
 We'll get an API request that looks like something:
 `POST /api/v1/stream/{camera-id}`
 which will kick of a process that might be something like (first run):
@@ -28,3 +27,11 @@ The alternative path might be like
 
 Alongside this, there should be a process running which is frequently checking over this in-memory store and keeping it
 tidy. If the time is more than 30 seconds ago, then kill the process and remove the entry from the store.
+
+### Timing issues
+It takes ffmpeg a few seconds (around 5?) before the HLS streaming really kicks off. 
+The API is currently ignoring all output from the FFMPEG command, but I bet
+that we should wait for it to start before we return a 200 from the initial POST
+to `/api/v1/stream`.
+
+Right now, we just wait 5 seconds before attempting to load the stream in JS

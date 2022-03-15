@@ -1,8 +1,62 @@
 import type {NextPage} from 'next'
 import Head from 'next/head'
 import styles from '../styles/Home.module.css'
+import {useEffect, useRef, useState} from "react";
+
+type Stream = {
+    rtspUrl: string,
+    channelId: string
+}
+
+const makeId = (length: number): string => {
+    let result = '';
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const charactersLength = characters.length;
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() *
+            charactersLength));
+    }
+    return result;
+};
+
+const delay = (time: number) => new Promise(resolve => setTimeout(resolve, time));
 
 const Home: NextPage = () => {
+
+    const [streams, setStreams] = useState<Stream[]>([])
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            streams.forEach((stream) => {
+                fetch("http://localhost:8080/api/v1/stream", {
+                    method: "POST",
+                    body: JSON.stringify(stream),
+                })
+            })
+        }, 10000) // 10 seconds
+        return () => clearInterval(interval)
+    }, [streams])
+
+    const handleAddStream = async () => {
+        const newStream = {
+            rtspUrl: inputRef.current!.value,
+            channelId: makeId(5),
+        }
+
+        inputRef.current!.value = ""
+
+        fetch("http://localhost:8080/api/v1/stream", {
+            method: "POST",
+            body: JSON.stringify(newStream),
+        })
+
+        await delay(5000)
+
+        setStreams([...streams, newStream])
+
+    }
+
     return (
         <div className={styles.container}>
             <Head>
@@ -12,10 +66,17 @@ const Home: NextPage = () => {
             </Head>
 
             <main className={styles.main}>
-                {["ch0", "ch1", "ch2", "ch3"].map((chNumber) =>
-                    <div className={styles.card} key={chNumber}>
+
+                <div className={styles.card}>
+                    <p>Add stream (enter RTSP URL):</p>
+                    <input type={"text"} ref={inputRef}/>
+                    <button onClick={handleAddStream}>Add stream</button>
+                </div>
+
+                {streams.map((stream) =>
+                    <div className={styles.card} key={stream.channelId}>
                         <video className={styles.video} controls preload="none" autoPlay>
-                            <source src={`http://localhost:8080/stream/${chNumber}/index.m3u8`}
+                            <source src={`http://localhost:8080/stream/${stream.channelId}/index.m3u8`}
                                     type="application/x-mpegURL"/>
                         </video>
                     </div>

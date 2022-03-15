@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"os"
 	"os/exec"
@@ -40,7 +41,7 @@ func startRTSP(rtspURL string, channelId string) {
 		"-segment_format", "mpegts",
 		"-segment_list", "index.m3u8",
 		"-segment_list_type", "m3u8",
-		"-segment_list_entry_prefix", channelId,
+		//"-segment_list_entry_prefix", channelId + "/",
 		"-segment_wrap", "10",
 		"%d.ts"}
 
@@ -147,6 +148,16 @@ func main() {
 	exec.Command("mkdir", "./stream").Run()
 
 	router := gin.Default()
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"*"},
+		AllowHeaders:     []string{"Origin"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
 	router.Static("./stream", "./stream")
 	router.POST("api/v1/stream", startStreamController)
 	router.Run("0.0.0.0:8080")
